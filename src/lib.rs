@@ -1,3 +1,4 @@
+use serde_wasm_bindgen::Serializer;
 use wasm_bindgen::prelude::*;
 
 use std::{
@@ -10,6 +11,8 @@ use flate2::read::{GzDecoder, GzEncoder};
 use quartz_nbt::{io::Flavor, serde::deserialize_from_buffer};
 use serde::{Deserialize, Serialize};
 use wasm_bindgen::JsError;
+
+const SERIALIZER: Serializer = Serializer::new().serialize_maps_as_objects(true);
 
 #[derive(Serialize, Deserialize, Clone, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
@@ -308,26 +311,26 @@ impl<T: Deref<Target = [u8]>> From<T> for Spell {
     }
 }
 
-impl TryFrom<Spell> for JsValue {
-    type Error = JsError;
-
-    #[inline]
-    fn try_from(value: Spell) -> Result<Self, Self::Error> {
-        serde_wasm_bindgen::to_value(&value).map_err(Into::into)
-    }
-}
-
 impl TryFrom<&Spell> for JsValue {
     type Error = JsError;
 
     #[inline]
     fn try_from(value: &Spell) -> Result<Self, Self::Error> {
-        serde_wasm_bindgen::to_value(value).map_err(Into::into)
+        value.serialize(&SERIALIZER).map_err(Into::into)
     }
 }
 
-#[wasm_bindgen]
-pub fn spell_from_snbt(snbt: &str) -> Result<JsValue, JsError> {
+impl TryFrom<Spell> for JsValue {
+    type Error = JsError;
+
+    #[inline]
+    fn try_from(value: Spell) -> Result<Self, Self::Error> {
+        (&value).try_into()
+    }
+}
+
+#[wasm_bindgen(js_name = "snbtToSpell")]
+pub fn snbt_to_spell(snbt: &str) -> Result<JsValue, JsError> {
     let snbt = quartz_nbt::snbt::parse(snbt).map_err(JsError::from)?;
 
     let mut bytes = Vec::new();
@@ -340,14 +343,14 @@ pub fn spell_from_snbt(snbt: &str) -> Result<JsValue, JsError> {
         .try_into()
 }
 
-#[wasm_bindgen]
-pub fn decode_spell_from_bytes(bytes: Vec<u8>) -> Result<JsValue, JsError> {
+#[wasm_bindgen(js_name = "bytesToSpell")]
+pub fn bytes_to_spell(bytes: Vec<u8>) -> Result<JsValue, JsError> {
     let spell: Spell = bytes.into();
-    Ok(serde_wasm_bindgen::to_value(&spell)?)
+    Ok(spell.serialize(&SERIALIZER)?)
 }
 
-#[wasm_bindgen]
-pub fn encode_bytes_to_url_safe(bytes: Vec<u8>) -> String {
+#[wasm_bindgen(js_name = "bytesToUrlSafe")]
+pub fn bytes_to_url_safe(bytes: Vec<u8>) -> String {
     const LEVEL: flate2::Compression = flate2::Compression::fast();
     let mut gz = GzEncoder::new(bytes.as_slice(), LEVEL);
     let mut encoded = Vec::new();
@@ -356,8 +359,8 @@ pub fn encode_bytes_to_url_safe(bytes: Vec<u8>) -> String {
     base64_simd::URL_SAFE.encode_to_string(encoded)
 }
 
-#[wasm_bindgen]
-pub fn decode_url_safe_to_bytes(url_safe: String) -> Result<Vec<u8>, JsError> {
+#[wasm_bindgen(js_name = "urlSafeToBytes")]
+pub fn url_safe_to_bytes(url_safe: String) -> Result<Vec<u8>, JsError> {
     let mut bytes = url_safe.into_bytes();
     let decoded = base64_simd::URL_SAFE
         .decode_inplace(&mut bytes)
@@ -369,23 +372,23 @@ pub fn decode_url_safe_to_bytes(url_safe: String) -> Result<Vec<u8>, JsError> {
     Ok(decoded)
 }
 
-#[wasm_bindgen]
-pub fn encode_spell_to_bytes(spell: JsValue) -> Result<Vec<u8>, JsError> {
+#[wasm_bindgen(js_name = "spellToBytes")]
+pub fn spell_to_bytes(spell: JsValue) -> Result<Vec<u8>, JsError> {
     let spell: Spell = serde_wasm_bindgen::from_value(spell)?;
     Ok((&spell).into())
 }
 
-#[wasm_bindgen]
-pub fn decode_spell(url_safe: String) -> Result<JsValue, JsError> {
-    Spell::decode(&decode_url_safe_to_bytes(url_safe)?).try_into()
+#[wasm_bindgen(js_name = "urlSafeToSpell")]
+pub fn url_safe_to_spell(url_safe: String) -> Result<JsValue, JsError> {
+    Spell::decode(&url_safe_to_bytes(url_safe)?).try_into()
 }
 
-#[wasm_bindgen]
-pub fn encode_spell(spell: JsValue) -> Result<String, JsError> {
-    Ok(encode_bytes_to_url_safe(encode_spell_to_bytes(spell)?))
+#[wasm_bindgen(js_name = "spellToUrlSafe")]
+pub fn spell_to_url_safe(spell: JsValue) -> Result<String, JsError> {
+    Ok(bytes_to_url_safe(spell_to_bytes(spell)?))
 }
 
-#[wasm_bindgen]
+#[wasm_bindgen(js_name = "spellToSnbt")]
 pub fn spell_to_snbt(spell: JsValue) -> Result<String, JsError> {
     let spell: Spell = serde_wasm_bindgen::from_value(spell)?;
     let ser = quartz_nbt::serde::serialize(&spell, None, Flavor::Uncompressed).unwrap();
