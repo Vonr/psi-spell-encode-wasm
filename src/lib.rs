@@ -11,10 +11,14 @@ use flate2::read::{GzDecoder, GzEncoder};
 use quartz_nbt::{io::Flavor, serde::deserialize_from_buffer};
 use serde::{Deserialize, Serialize};
 use wasm_bindgen::JsError;
+extern crate wee_alloc;
+
+#[global_allocator]
+static ALLOC: wee_alloc::WeeAlloc = wee_alloc::WeeAlloc::INIT;
 
 const SERIALIZER: Serializer = Serializer::new().serialize_maps_as_objects(true);
 
-#[derive(Serialize, Deserialize, Clone, PartialEq, Eq)]
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub struct Spell {
     #[serde(rename = "modsRequired")]
@@ -25,7 +29,7 @@ pub struct Spell {
     pub name: String,
 }
 
-#[derive(Serialize, Deserialize, Clone, PartialEq, Eq)]
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub struct Mod {
     #[serde(rename = "modName")]
@@ -34,7 +38,7 @@ pub struct Mod {
     pub version: String,
 }
 
-#[derive(Serialize, Deserialize, Clone, PartialEq, Eq)]
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub struct Piece {
     pub data: SpellData,
@@ -95,7 +99,7 @@ pub type SpellParams = HashMap<String, u8>;
 pub struct SpellData {
     pub key: String,
     pub params: Option<SpellParams>,
-    #[serde(rename = "constant_value")]
+    #[serde(rename = "constantValue")]
     pub constant: Option<String>,
     pub comment: Option<String>,
 }
@@ -331,16 +335,19 @@ impl TryFrom<Spell> for JsValue {
 
 #[wasm_bindgen(js_name = "snbtToSpell")]
 pub fn snbt_to_spell(snbt: &str) -> Result<JsValue, JsError> {
+    web_sys::console::log_1(&snbt.into());
     let snbt = quartz_nbt::snbt::parse(snbt).map_err(JsError::from)?;
+    web_sys::console::log_1(&format!("{snbt:?}").into());
 
     let mut bytes = Vec::new();
     quartz_nbt::io::write_nbt(&mut bytes, None, &snbt, Flavor::Uncompressed)
         .map_err(JsError::from)?;
 
-    deserialize_from_buffer::<Spell>(&bytes)
+    let spell = deserialize_from_buffer::<Spell>(&bytes)
         .map_err(JsError::from)?
-        .0
-        .try_into()
+        .0;
+
+    spell.try_into()
 }
 
 #[wasm_bindgen(js_name = "bytesToSpell")]
