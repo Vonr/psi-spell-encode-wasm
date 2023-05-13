@@ -11,10 +11,6 @@ use flate2::read::{GzDecoder, GzEncoder};
 use quartz_nbt::{io::Flavor, serde::deserialize_from_buffer};
 use serde::{Deserialize, Serialize};
 use wasm_bindgen::JsError;
-extern crate wee_alloc;
-
-#[global_allocator]
-static ALLOC: wee_alloc::WeeAlloc = wee_alloc::WeeAlloc::INIT;
 
 const SERIALIZER: Serializer = Serializer::new().serialize_maps_as_objects(true);
 
@@ -335,17 +331,12 @@ impl TryFrom<Spell> for JsValue {
 
 #[wasm_bindgen(js_name = "snbtToSpell")]
 pub fn snbt_to_spell(snbt: &str) -> Result<JsValue, JsError> {
-    web_sys::console::log_1(&snbt.into());
-    let snbt = quartz_nbt::snbt::parse(snbt).map_err(JsError::from)?;
-    web_sys::console::log_1(&format!("{snbt:?}").into());
+    let snbt = quartz_nbt::snbt::parse(snbt)?;
 
     let mut bytes = Vec::new();
-    quartz_nbt::io::write_nbt(&mut bytes, None, &snbt, Flavor::Uncompressed)
-        .map_err(JsError::from)?;
+    quartz_nbt::io::write_nbt(&mut bytes, None, &snbt, Flavor::Uncompressed)?;
 
-    let spell = deserialize_from_buffer::<Spell>(&bytes)
-        .map_err(JsError::from)?
-        .0;
+    let spell = deserialize_from_buffer::<Spell>(&bytes)?.0;
 
     spell.try_into()
 }
@@ -369,13 +360,10 @@ pub fn bytes_to_url_safe(bytes: Vec<u8>) -> String {
 #[wasm_bindgen(js_name = "urlSafeToBytes")]
 pub fn url_safe_to_bytes(url_safe: String) -> Result<Vec<u8>, JsError> {
     let mut bytes = url_safe.into_bytes();
-    let decoded = base64_simd::URL_SAFE
-        .decode_inplace(&mut bytes)
-        .map_err(JsError::from)?
-        .to_vec();
+    let decoded = base64_simd::URL_SAFE.decode_inplace(&mut bytes)?.to_vec();
     let mut gz = GzDecoder::new(&decoded[..]);
     let mut decoded = Vec::new();
-    gz.read_to_end(&mut decoded).map_err(JsError::from)?;
+    gz.read_to_end(&mut decoded)?;
     Ok(decoded)
 }
 
@@ -393,6 +381,38 @@ pub fn url_safe_to_spell(url_safe: String) -> Result<JsValue, JsError> {
 #[wasm_bindgen(js_name = "spellToUrlSafe")]
 pub fn spell_to_url_safe(spell: JsValue) -> Result<String, JsError> {
     Ok(bytes_to_url_safe(spell_to_bytes(spell)?))
+}
+
+#[wasm_bindgen(js_name = "urlSafeToSpellZstd")]
+pub fn url_safe_to_spell_zstd(url_safe: String) -> Result<JsValue, JsError> {
+    Spell::decode(&url_safe_to_bytes_zstd(url_safe)?).try_into()
+}
+
+#[wasm_bindgen(js_name = "spellToUrlSafeZstd")]
+pub fn spell_to_url_safe_zstd(spell: JsValue) -> Result<String, JsError> {
+    bytes_to_url_safe_zstd(spell_to_bytes(spell)?)
+}
+
+const ZSTD_DICT: &[u8] = include_bytes!("./zstd_dict");
+
+#[wasm_bindgen(js_name = "bytesToUrlSafeZstd")]
+pub fn bytes_to_url_safe_zstd(bytes: Vec<u8>) -> Result<String, JsError> {
+    let bytes =
+        zstd::bulk::Compressor::with_dictionary(22, ZSTD_DICT)?.compress(bytes.as_slice())?;
+
+    Ok(base64_simd::URL_SAFE.encode_to_string(bytes))
+}
+
+#[wasm_bindgen(js_name = "urlSafeToBytesZstd")]
+pub fn url_safe_to_bytes_zstd(url_safe: String) -> Result<Vec<u8>, JsError> {
+    let mut bytes = url_safe.into_bytes();
+    let decoded = base64_simd::URL_SAFE.decode_inplace(&mut bytes)?.to_vec();
+
+    let mut dest = Vec::new();
+    let mut decoder = zstd::stream::Decoder::with_dictionary(decoded.as_slice(), ZSTD_DICT)?;
+    std::io::copy(&mut decoder, &mut dest)?;
+
+    Ok(dest)
 }
 
 #[wasm_bindgen(js_name = "spellToSnbt")]
