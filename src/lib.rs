@@ -4,15 +4,15 @@ use wasm_bindgen::prelude::*;
 use std::{
     collections::HashMap,
     io::{BufRead, Cursor, Read},
-    ops::Deref,
 };
 
-use flate2::read::{GzDecoder, GzEncoder};
 use quartz_nbt::{io::Flavor, serde::deserialize_from_buffer};
 use serde::{Deserialize, Serialize};
 use wasm_bindgen::JsError;
 
 const SERIALIZER: Serializer = Serializer::new().serialize_maps_as_objects(true);
+
+type JsResult<T> = Result<T, JsError>;
 
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
@@ -165,20 +165,20 @@ impl Spell {
     }
 
     #[inline]
-    pub fn decode(data: &[u8]) -> Self {
+    pub fn decode(data: &[u8]) -> JsResult<Self> {
         #[inline]
-        fn read_until<T>(cursor: &mut Cursor<T>, byte: u8) -> Vec<u8>
+        fn read_until<T>(cursor: &mut Cursor<T>, byte: u8) -> JsResult<Vec<u8>>
         where
             T: std::convert::AsRef<[u8]>,
         {
             let mut out = Vec::new();
-            cursor.read_until(byte, &mut out).unwrap();
+            cursor.read_until(byte, &mut out)?;
             out.pop();
-            out
+            Ok(out)
         }
 
         #[inline]
-        fn read_until_nul<T>(cursor: &mut Cursor<T>) -> Vec<u8>
+        fn read_until_nul<T>(cursor: &mut Cursor<T>) -> JsResult<Vec<u8>>
         where
             T: std::convert::AsRef<[u8]>,
         {
@@ -186,27 +186,27 @@ impl Spell {
         }
 
         #[inline]
-        fn next<T>(cursor: &mut Cursor<T>) -> u8
+        fn next<T>(cursor: &mut Cursor<T>) -> JsResult<u8>
         where
             T: std::convert::AsRef<[u8]>,
         {
             let mut a = [0];
-            cursor.read_exact(&mut a).unwrap();
-            a[0]
+            cursor.read_exact(&mut a)?;
+            Ok(a[0])
         }
 
         #[inline]
-        fn btos(b: Vec<u8>) -> String {
-            String::from_utf8(b).unwrap()
+        fn btos(b: Vec<u8>) -> JsResult<String> {
+            Ok(String::from_utf8(b)?)
         }
 
         let mut cursor = Cursor::new(data);
-        let name = btos(read_until_nul(&mut cursor));
+        let name = btos(read_until_nul(&mut cursor)?)?;
         let mut mods = Vec::new();
         let mut pieces = Vec::new();
 
         {
-            let m = read_until(&mut cursor, b']');
+            let m = read_until(&mut cursor, b']')?;
             for m in m.split(|b| *b == b';') {
                 let mut name = Vec::new();
                 let mut version = Vec::new();
@@ -224,17 +224,17 @@ impl Spell {
                     }
                 }
                 mods.push(Mod {
-                    name: btos(name),
-                    version: btos(version),
+                    name: btos(name)?,
+                    version: btos(version)?,
                 })
             }
         }
 
-        while cursor.fill_buf().map(|b| !b.is_empty()).unwrap() {
-            let xy = next(&mut cursor);
+        while cursor.fill_buf().map(|b| !b.is_empty())? {
+            let xy = next(&mut cursor)?;
             let x = xy >> 4;
             let y = xy & 0b1111;
-            let mut key = read_until_nul(&mut cursor);
+            let mut key = read_until_nul(&mut cursor)?;
             if !key.contains(&b':') {
                 key.reserve(4);
                 unsafe {
@@ -246,9 +246,9 @@ impl Spell {
                 key[2] = b'i';
                 key[3] = b':';
             }
-            let key = btos(key);
+            let key = btos(key)?;
 
-            let comment = btos(read_until_nul(&mut cursor));
+            let comment = btos(read_until_nul(&mut cursor)?)?;
             let comment = if comment.is_empty() {
                 None
             } else {
@@ -258,20 +258,20 @@ impl Spell {
             let mut params = HashMap::new();
             let mut constant = None;
 
-            let ty = next(&mut cursor);
+            let ty = next(&mut cursor)?;
             if ty == 255 {
-                constant = Some(btos(read_until_nul(&mut cursor)));
+                constant = Some(btos(read_until_nul(&mut cursor)?)?);
             } else if ty != 254 {
                 let len = ty;
                 for _ in 0..len {
-                    let type_or_pos = next(&mut cursor);
+                    let type_or_pos = next(&mut cursor)?;
                     let param_key = if type_or_pos == 255 {
-                        btos(read_until_nul(&mut cursor))
+                        btos(read_until_nul(&mut cursor)?)?
                     } else {
                         BUILTIN_PARAMS[type_or_pos as usize].to_string()
                     };
 
-                    let side = next(&mut cursor);
+                    let side = next(&mut cursor)?;
                     params.insert(param_key, side);
                 }
             }
@@ -293,7 +293,7 @@ impl Spell {
             pieces.push(piece);
         }
 
-        Self { name, mods, pieces }
+        Ok(Self { name, mods, pieces })
     }
 }
 
@@ -301,13 +301,6 @@ impl From<&Spell> for Vec<u8> {
     #[inline]
     fn from(value: &Spell) -> Self {
         value.bin()
-    }
-}
-
-impl<T: Deref<Target = [u8]>> From<T> for Spell {
-    #[inline]
-    fn from(value: T) -> Self {
-        Self::decode(&value)
     }
 }
 
@@ -330,7 +323,7 @@ impl TryFrom<Spell> for JsValue {
 }
 
 #[wasm_bindgen(js_name = "snbtToSpell")]
-pub fn snbt_to_spell(snbt: &str) -> Result<JsValue, JsError> {
+pub fn snbt_to_spell(snbt: &str) -> JsResult<JsValue> {
     let snbt = quartz_nbt::snbt::parse(snbt)?;
 
     let mut bytes = Vec::new();
@@ -342,29 +335,9 @@ pub fn snbt_to_spell(snbt: &str) -> Result<JsValue, JsError> {
 }
 
 #[wasm_bindgen(js_name = "bytesToSpell")]
-pub fn bytes_to_spell(bytes: Vec<u8>) -> Result<JsValue, JsError> {
-    let spell: Spell = bytes.into();
+pub fn bytes_to_spell(bytes: Vec<u8>) -> JsResult<JsValue> {
+    let spell: Spell = Spell::decode(&bytes)?;
     Ok(spell.serialize(&SERIALIZER)?)
-}
-
-#[wasm_bindgen(js_name = "bytesToUrlSafe")]
-pub fn bytes_to_url_safe(bytes: Vec<u8>) -> String {
-    const LEVEL: flate2::Compression = flate2::Compression::fast();
-    let mut gz = GzEncoder::new(bytes.as_slice(), LEVEL);
-    let mut encoded = Vec::new();
-    gz.read_to_end(&mut encoded).unwrap();
-
-    base64_simd::URL_SAFE.encode_to_string(encoded)
-}
-
-#[wasm_bindgen(js_name = "urlSafeToBytes")]
-pub fn url_safe_to_bytes(url_safe: String) -> Result<Vec<u8>, JsError> {
-    let mut bytes = url_safe.into_bytes();
-    let decoded = base64_simd::URL_SAFE.decode_inplace(&mut bytes)?.to_vec();
-    let mut gz = GzDecoder::new(&decoded[..]);
-    let mut decoded = Vec::new();
-    gz.read_to_end(&mut decoded)?;
-    Ok(decoded)
 }
 
 #[wasm_bindgen(js_name = "spellToBytes")]
@@ -374,37 +347,27 @@ pub fn spell_to_bytes(spell: JsValue) -> Result<Vec<u8>, JsError> {
 }
 
 #[wasm_bindgen(js_name = "urlSafeToSpell")]
-pub fn url_safe_to_spell(url_safe: String) -> Result<JsValue, JsError> {
-    Spell::decode(&url_safe_to_bytes(url_safe)?).try_into()
+pub fn url_safe_to_spell(url_safe: String) -> JsResult<JsValue> {
+    Spell::decode(&url_safe_to_bytes(url_safe)?)?.try_into()
 }
 
 #[wasm_bindgen(js_name = "spellToUrlSafe")]
-pub fn spell_to_url_safe(spell: JsValue) -> Result<String, JsError> {
-    Ok(bytes_to_url_safe(spell_to_bytes(spell)?))
-}
-
-#[wasm_bindgen(js_name = "urlSafeToSpellZstd")]
-pub fn url_safe_to_spell_zstd(url_safe: String) -> Result<JsValue, JsError> {
-    Spell::decode(&url_safe_to_bytes_zstd(url_safe)?).try_into()
-}
-
-#[wasm_bindgen(js_name = "spellToUrlSafeZstd")]
-pub fn spell_to_url_safe_zstd(spell: JsValue) -> Result<String, JsError> {
-    bytes_to_url_safe_zstd(spell_to_bytes(spell)?)
+pub fn spell_to_url_safe(spell: JsValue) -> JsResult<String> {
+    bytes_to_url_safe(spell_to_bytes(spell)?)
 }
 
 const ZSTD_DICT: &[u8] = include_bytes!("./zstd_dict");
 
-#[wasm_bindgen(js_name = "bytesToUrlSafeZstd")]
-pub fn bytes_to_url_safe_zstd(bytes: Vec<u8>) -> Result<String, JsError> {
+#[wasm_bindgen(js_name = "bytesToUrlSafe")]
+pub fn bytes_to_url_safe(bytes: Vec<u8>) -> JsResult<String> {
     let bytes =
         zstd::bulk::Compressor::with_dictionary(22, ZSTD_DICT)?.compress(bytes.as_slice())?;
 
     Ok(base64_simd::URL_SAFE.encode_to_string(bytes))
 }
 
-#[wasm_bindgen(js_name = "urlSafeToBytesZstd")]
-pub fn url_safe_to_bytes_zstd(url_safe: String) -> Result<Vec<u8>, JsError> {
+#[wasm_bindgen(js_name = "urlSafeToBytes")]
+pub fn url_safe_to_bytes(url_safe: String) -> JsResult<Vec<u8>> {
     let mut bytes = url_safe.into_bytes();
     let decoded = base64_simd::URL_SAFE.decode_inplace(&mut bytes)?.to_vec();
 
@@ -416,10 +379,15 @@ pub fn url_safe_to_bytes_zstd(url_safe: String) -> Result<Vec<u8>, JsError> {
 }
 
 #[wasm_bindgen(js_name = "spellToSnbt")]
-pub fn spell_to_snbt(spell: JsValue) -> Result<String, JsError> {
+pub fn spell_to_snbt(spell: JsValue) -> JsResult<String> {
     let spell: Spell = serde_wasm_bindgen::from_value(spell)?;
     let ser = quartz_nbt::serde::serialize(&spell, None, Flavor::Uncompressed).unwrap();
     quartz_nbt::io::read_nbt(&mut Cursor::new(ser), Flavor::Uncompressed)
         .map(|o| o.0.to_snbt())
         .map_err(JsError::from)
+}
+
+#[wasm_bindgen(start)]
+pub fn main() {
+    std::panic::set_hook(Box::new(console_error_panic_hook::hook));
 }

@@ -1,6 +1,6 @@
 [package]
 name = "psi-spell-encode-wasm"
-version = "1.0.4"
+version = "2.0.0"
 edition = "2021"
 
 [lib]
@@ -10,19 +10,22 @@ crate-type = ["cdylib"]
 
 [dependencies]
 base64-simd = "0.8.0"
-flate2 = "1.0.25"
+console_error_panic_hook = "0.1.7"
 serde-wasm-bindgen = "0.5.0"
-wasm-bindgen = "0.2.84"
-zstd = { version = "0.12.3", features = ["wasm", "fat-lto"], default-features = false }
+wasm-bindgen = "0.2.85"
 
 [dependencies.serde]
-version = "1.0.160"
+version = "1.0.163"
 features = ["derive"]
 
 [dependencies.quartz_nbt]
-git = "https://github.com/Rusty-Quartz/quartz_nbt"
-rev = "38b96935317865bec5a8b82052f4e7604d945bea"
+version = "0.2.7"
 features = ["serde"]
+
+[dependencies.zstd]
+version = "0.12.3"
+features = ["wasm", "fat-lto"]
+default-features = false
 
 [profile.release]
 lto = true
