@@ -110,16 +110,20 @@ impl Spell {
             out.push(0);
         }
 
-        for m in &self.mods {
-            let name = m.name.as_bytes();
-            let version = m.version.as_bytes();
-            out.extend_from_slice(name);
-            out.push(b',');
-            out.extend_from_slice(version);
-            out.push(b';');
+        if !self.mods.is_empty() {
+            for m in &self.mods {
+                let name = m.name.as_bytes();
+                let version = m.version.as_bytes();
+                out.extend_from_slice(name);
+                out.push(b',');
+                out.extend_from_slice(version);
+                out.push(b';');
+            }
+            let last = out.len() - 1;
+            out[last] = b']';
+        } else {
+            out.push(b']');
         }
-        let last = out.len() - 1;
-        out[last] = b']';
 
         for piece in &self.pieces {
             let data = &piece.data;
