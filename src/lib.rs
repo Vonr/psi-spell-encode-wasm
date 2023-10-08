@@ -1,4 +1,5 @@
 use serde_wasm_bindgen::Serializer;
+use tsify::{declare, Tsify};
 use wasm_bindgen::prelude::*;
 
 use std::{
@@ -14,10 +15,11 @@ const SERIALIZER: Serializer = Serializer::new().serialize_maps_as_objects(true)
 
 type JsResult<T> = Result<T, JsError>;
 
-#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
+#[derive(Tsify, Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub struct Spell {
     #[serde(rename = "modsRequired")]
+    #[serde(default)]
     pub mods: Vec<Mod>,
     #[serde(rename = "spellList")]
     pub pieces: Vec<Piece>,
@@ -25,7 +27,7 @@ pub struct Spell {
     pub name: String,
 }
 
-#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
+#[derive(Tsify, Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub struct Mod {
     #[serde(rename = "modName")]
@@ -34,7 +36,7 @@ pub struct Mod {
     pub version: String,
 }
 
-#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
+#[derive(Tsify, Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub struct Piece {
     pub data: SpellData,
@@ -88,9 +90,10 @@ const BUILTIN_PARAMS: [&str; 43] = [
     "_ray_start",
 ];
 
+#[declare]
 pub type SpellParams = HashMap<String, u8>;
 
-#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
+#[derive(Tsify, Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub struct SpellData {
     pub key: String,
