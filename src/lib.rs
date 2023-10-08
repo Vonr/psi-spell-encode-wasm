@@ -1,4 +1,3 @@
-use serde_wasm_bindgen::Serializer;
 use tsify::{declare, Tsify};
 use wasm_bindgen::prelude::*;
 
@@ -11,12 +10,11 @@ use quartz_nbt::{io::Flavor, serde::deserialize_from_buffer};
 use serde::{Deserialize, Serialize};
 use wasm_bindgen::JsError;
 
-const SERIALIZER: Serializer = Serializer::new().serialize_maps_as_objects(true);
-
 type JsResult<T> = Result<T, JsError>;
 
 #[derive(Tsify, Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
+#[tsify(into_wasm_abi, from_wasm_abi)]
 pub struct Spell {
     #[serde(rename = "modsRequired")]
     #[serde(default)]
@@ -29,6 +27,7 @@ pub struct Spell {
 
 #[derive(Tsify, Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
+#[tsify(into_wasm_abi, from_wasm_abi)]
 pub struct Mod {
     #[serde(rename = "modName")]
     pub name: String,
@@ -38,6 +37,7 @@ pub struct Mod {
 
 #[derive(Tsify, Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
+#[tsify(into_wasm_abi, from_wasm_abi)]
 pub struct Piece {
     pub data: SpellData,
     pub x: u8,
@@ -95,6 +95,7 @@ pub type SpellParams = HashMap<String, u8>;
 
 #[derive(Tsify, Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
+#[tsify(into_wasm_abi, from_wasm_abi)]
 pub struct SpellData {
     pub key: String,
     pub params: Option<SpellParams>,
@@ -311,26 +312,8 @@ impl From<&Spell> for Vec<u8> {
     }
 }
 
-impl TryFrom<&Spell> for JsValue {
-    type Error = JsError;
-
-    #[inline]
-    fn try_from(value: &Spell) -> Result<Self, Self::Error> {
-        value.serialize(&SERIALIZER).map_err(Into::into)
-    }
-}
-
-impl TryFrom<Spell> for JsValue {
-    type Error = JsError;
-
-    #[inline]
-    fn try_from(value: Spell) -> Result<Self, Self::Error> {
-        (&value).try_into()
-    }
-}
-
 #[wasm_bindgen(js_name = "snbtToSpell")]
-pub fn snbt_to_spell(snbt: &str) -> JsResult<JsValue> {
+pub fn snbt_to_spell(snbt: &str) -> JsResult<Spell> {
     let snbt = quartz_nbt::snbt::parse(snbt)?;
 
     let mut bytes = Vec::new();
@@ -338,28 +321,27 @@ pub fn snbt_to_spell(snbt: &str) -> JsResult<JsValue> {
 
     let spell = deserialize_from_buffer::<Spell>(&bytes)?.0;
 
-    spell.try_into()
+    Ok(spell)
 }
 
 #[wasm_bindgen(js_name = "bytesToSpell")]
-pub fn bytes_to_spell(bytes: Vec<u8>) -> JsResult<JsValue> {
+pub fn bytes_to_spell(bytes: Vec<u8>) -> JsResult<Spell> {
     let spell: Spell = Spell::decode(&bytes)?;
-    Ok(spell.serialize(&SERIALIZER)?)
+    Ok(spell)
 }
 
 #[wasm_bindgen(js_name = "spellToBytes")]
-pub fn spell_to_bytes(spell: JsValue) -> Result<Vec<u8>, JsError> {
-    let spell: Spell = serde_wasm_bindgen::from_value(spell)?;
+pub fn spell_to_bytes(spell: Spell) -> Result<Vec<u8>, JsError> {
     Ok((&spell).into())
 }
 
 #[wasm_bindgen(js_name = "urlSafeToSpell")]
-pub fn url_safe_to_spell(url_safe: String) -> JsResult<JsValue> {
-    Spell::decode(&url_safe_to_bytes(url_safe)?)?.try_into()
+pub fn url_safe_to_spell(url_safe: String) -> JsResult<Spell> {
+    Spell::decode(&url_safe_to_bytes(url_safe)?)
 }
 
 #[wasm_bindgen(js_name = "spellToUrlSafe")]
-pub fn spell_to_url_safe(spell: JsValue) -> JsResult<String> {
+pub fn spell_to_url_safe(spell: Spell) -> JsResult<String> {
     bytes_to_url_safe(spell_to_bytes(spell)?)
 }
 
@@ -386,8 +368,7 @@ pub fn url_safe_to_bytes(url_safe: String) -> JsResult<Vec<u8>> {
 }
 
 #[wasm_bindgen(js_name = "spellToSnbt")]
-pub fn spell_to_snbt(spell: JsValue) -> JsResult<String> {
-    let spell: Spell = serde_wasm_bindgen::from_value(spell)?;
+pub fn spell_to_snbt(spell: Spell) -> JsResult<String> {
     let ser = quartz_nbt::serde::serialize(&spell, None, Flavor::Uncompressed).unwrap();
     quartz_nbt::io::read_nbt(&mut Cursor::new(ser), Flavor::Uncompressed)
         .map(|o| o.0.to_snbt())
