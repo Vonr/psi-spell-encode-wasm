@@ -157,7 +157,7 @@ dependencies = [
 
 [[package]]
 name = "psi-spell-encode-wasm"
-version = "2.0.5"
+version = "2.0.6"
 dependencies = [
  "base64-simd",
  "console_error_panic_hook",
@@ -171,8 +171,7 @@ dependencies = [
 [[package]]
 name = "quartz_nbt"
 version = "0.2.8"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "72ae154b7a8bb706ea9712d29dc3b6817ec38d6e665038bb6acd38fe98e3e1d9"
+source = "git+https://github.com/Rusty-Quartz/quartz_nbt?rev=5e77de63de22e436e2c1e57d407d0dc222ffc85f#5e77de63de22e436e2c1e57d407d0dc222ffc85f"
 dependencies = [
  "anyhow",
  "byteorder",
@@ -185,8 +184,7 @@ dependencies = [
 [[package]]
 name = "quartz_nbt_macros"
 version = "0.1.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "289baa0c8a4d1f840d2de528a7f8c29e0e9af48b3018172b3edad4f716e8daed"
+source = "git+https://github.com/Rusty-Quartz/quartz_nbt?rev=5e77de63de22e436e2c1e57d407d0dc222ffc85f#5e77de63de22e436e2c1e57d407d0dc222ffc85f"
 dependencies = [
  "proc-macro2",
  "quote",
