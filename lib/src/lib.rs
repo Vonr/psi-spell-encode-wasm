@@ -1,20 +1,32 @@
-use tsify::{declare, Tsify};
+use base64::Engine;
+#[cfg(feature = "wasm")]
 use wasm_bindgen::prelude::*;
+use zstd::dict::{DecoderDictionary, EncoderDictionary};
 
 use std::{
+    cell::LazyCell,
     collections::HashMap,
     io::{BufRead, Cursor, Read},
 };
 
 use quartz_nbt::{io::Flavor, serde::deserialize_from_buffer};
 use serde::{Deserialize, Serialize};
-use wasm_bindgen::JsError;
 
-type JsResult<T> = Result<T, JsError>;
+#[cfg(feature = "wasm")]
+#[global_allocator]
+static ALLOC: wee_alloc::WeeAlloc = wee_alloc::WeeAlloc::INIT;
 
-#[derive(Tsify, Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
+#[cfg(feature = "wasm")]
+type Error = wasm_bindgen::JsError;
+#[cfg(not(feature = "wasm"))]
+type Error = anyhow::Error;
+
+type Result<T> = std::result::Result<T, Error>;
+
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
-#[tsify(into_wasm_abi, from_wasm_abi)]
+#[cfg_attr(feature = "wasm", derive(tsify::Tsify))]
+#[cfg_attr(feature = "wasm", tsify(into_wasm_abi, from_wasm_abi))]
 pub struct Spell {
     #[serde(rename = "modsRequired")]
     #[serde(default)]
@@ -25,9 +37,10 @@ pub struct Spell {
     pub name: String,
 }
 
-#[derive(Tsify, Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
-#[tsify(into_wasm_abi, from_wasm_abi)]
+#[cfg_attr(feature = "wasm", derive(tsify::Tsify))]
+#[cfg_attr(feature = "wasm", tsify(into_wasm_abi, from_wasm_abi))]
 pub struct Mod {
     #[serde(rename = "modName")]
     pub name: String,
@@ -35,9 +48,10 @@ pub struct Mod {
     pub version: String,
 }
 
-#[derive(Tsify, Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
-#[tsify(into_wasm_abi, from_wasm_abi)]
+#[cfg_attr(feature = "wasm", derive(tsify::Tsify))]
+#[cfg_attr(feature = "wasm", tsify(into_wasm_abi, from_wasm_abi))]
 pub struct Piece {
     pub data: SpellData,
     pub x: u8,
@@ -90,12 +104,13 @@ const BUILTIN_PARAMS: [&str; 43] = [
     "_ray_start",
 ];
 
-#[declare]
+#[cfg_attr(feature = "wasm", tsify::declare)]
 pub type SpellParams = HashMap<String, u8>;
 
-#[derive(Tsify, Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
-#[tsify(into_wasm_abi, from_wasm_abi)]
+#[cfg_attr(feature = "wasm", derive(tsify::Tsify))]
+#[cfg_attr(feature = "wasm", tsify(into_wasm_abi, from_wasm_abi))]
 pub struct SpellData {
     pub key: String,
     pub params: Option<SpellParams>,
@@ -106,13 +121,10 @@ pub struct SpellData {
 
 impl Spell {
     #[inline]
-    pub fn bin(&self) -> Vec<u8> {
-        let mut out: Vec<u8> = Vec::new();
-        {
-            let name = self.name.as_bytes();
-            out.extend_from_slice(name);
-            out.push(0);
-        }
+    pub fn extend_bin(&self, out: &mut Vec<u8>) {
+        let name = self.name.as_bytes();
+        out.extend_from_slice(name);
+        out.push(0);
 
         if !self.mods.is_empty() {
             for m in &self.mods {
@@ -168,14 +180,19 @@ impl Spell {
                 out.push(254);
             }
         }
+    }
 
+    #[inline]
+    pub fn bin(&self) -> Vec<u8> {
+        let mut out: Vec<u8> = Vec::new();
+        self.extend_bin(&mut out);
         out
     }
 
     #[inline]
-    pub fn decode(data: &[u8]) -> JsResult<Self> {
+    pub fn decode(data: &[u8]) -> Result<Self> {
         #[inline]
-        fn read_until<T>(cursor: &mut Cursor<T>, byte: u8) -> JsResult<Vec<u8>>
+        fn read_until<T>(cursor: &mut Cursor<T>, byte: u8) -> Result<Vec<u8>>
         where
             T: std::convert::AsRef<[u8]>,
         {
@@ -186,7 +203,7 @@ impl Spell {
         }
 
         #[inline]
-        fn read_until_nul<T>(cursor: &mut Cursor<T>) -> JsResult<Vec<u8>>
+        fn read_until_nul<T>(cursor: &mut Cursor<T>) -> Result<Vec<u8>>
         where
             T: std::convert::AsRef<[u8]>,
         {
@@ -194,7 +211,7 @@ impl Spell {
         }
 
         #[inline]
-        fn next<T>(cursor: &mut Cursor<T>) -> JsResult<u8>
+        fn next<T>(cursor: &mut Cursor<T>) -> Result<u8>
         where
             T: std::convert::AsRef<[u8]>,
         {
@@ -204,7 +221,7 @@ impl Spell {
         }
 
         #[inline]
-        fn btos(b: Vec<u8>) -> JsResult<String> {
+        fn btos(b: Vec<u8>) -> Result<String> {
             Ok(String::from_utf8(b)?)
         }
 
@@ -312,8 +329,8 @@ impl From<&Spell> for Vec<u8> {
     }
 }
 
-#[wasm_bindgen(js_name = "snbtToSpell")]
-pub fn snbt_to_spell(snbt: &str) -> JsResult<Spell> {
+#[cfg_attr(feature = "wasm", wasm_bindgen(js_name = "snbtToSpell"))]
+pub fn snbt_to_spell(snbt: &str) -> Result<Spell> {
     let snbt = quartz_nbt::snbt::parse(snbt)?;
 
     let mut bytes = Vec::new();
@@ -324,57 +341,70 @@ pub fn snbt_to_spell(snbt: &str) -> JsResult<Spell> {
     Ok(spell)
 }
 
-#[wasm_bindgen(js_name = "bytesToSpell")]
-pub fn bytes_to_spell(bytes: Vec<u8>) -> JsResult<Spell> {
-    let spell: Spell = Spell::decode(&bytes)?;
+#[cfg_attr(feature = "wasm", wasm_bindgen(js_name = "bytesToSpell"))]
+pub fn bytes_to_spell(bytes: Vec<u8>) -> Result<Spell> {
+    byte_slice_to_spell(&bytes)
+}
+
+pub fn byte_slice_to_spell(bytes: &[u8]) -> Result<Spell> {
+    let spell: Spell = Spell::decode(bytes)?;
     Ok(spell)
 }
 
-#[wasm_bindgen(js_name = "spellToBytes")]
-pub fn spell_to_bytes(spell: Spell) -> Result<Vec<u8>, JsError> {
+#[cfg_attr(feature = "wasm", wasm_bindgen(js_name = "spellToBytes"))]
+pub fn spell_to_bytes(spell: Spell) -> Result<Vec<u8>> {
     Ok((&spell).into())
 }
 
-#[wasm_bindgen(js_name = "urlSafeToSpell")]
-pub fn url_safe_to_spell(url_safe: String) -> JsResult<Spell> {
+#[cfg_attr(feature = "wasm", wasm_bindgen(js_name = "urlSafeToSpell"))]
+pub fn url_safe_to_spell(url_safe: String) -> Result<Spell> {
     Spell::decode(&url_safe_to_bytes(url_safe)?)
 }
 
-#[wasm_bindgen(js_name = "spellToUrlSafe")]
-pub fn spell_to_url_safe(spell: Spell) -> JsResult<String> {
+#[cfg_attr(feature = "wasm", wasm_bindgen(js_name = "spellToUrlSafe"))]
+pub fn spell_to_url_safe(spell: Spell) -> Result<String> {
     bytes_to_url_safe(spell_to_bytes(spell)?)
 }
 
-const ZSTD_DICT: &[u8] = include_bytes!("./zstd_dict");
+const ZSTD_DICT_RAW: &[u8] = include_bytes!("./zstd_dict");
 
-#[wasm_bindgen(js_name = "bytesToUrlSafe")]
-pub fn bytes_to_url_safe(bytes: Vec<u8>) -> JsResult<String> {
-    let bytes =
-        zstd::bulk::Compressor::with_dictionary(22, ZSTD_DICT)?.compress(bytes.as_slice())?;
-
-    Ok(base64_simd::URL_SAFE.encode_to_string(bytes))
+thread_local! {
+    static ZSTD_CDICT: LazyCell<&'static EncoderDictionary> = const { LazyCell::new(|| Box::leak(Box::new(EncoderDictionary::copy(ZSTD_DICT_RAW, 22)))) };
+    static ZSTD_DDICT: LazyCell<&'static DecoderDictionary> = const { LazyCell::new(|| Box::leak(Box::new(DecoderDictionary::copy(ZSTD_DICT_RAW)))) };
 }
 
-#[wasm_bindgen(js_name = "urlSafeToBytes")]
-pub fn url_safe_to_bytes(url_safe: String) -> JsResult<Vec<u8>> {
-    let mut bytes = url_safe.into_bytes();
-    let decoded = base64_simd::URL_SAFE.decode_inplace(&mut bytes)?.to_vec();
+#[cfg_attr(feature = "wasm", wasm_bindgen(js_name = "bytesToUrlSafe"))]
+pub fn bytes_to_url_safe(bytes: Vec<u8>) -> Result<String> {
+    byte_slice_to_url_safe(&bytes)
+}
 
-    let mut dest = Vec::new();
-    let mut decoder = zstd::stream::Decoder::with_dictionary(decoded.as_slice(), ZSTD_DICT)?;
-    std::io::copy(&mut decoder, &mut dest)?;
+pub fn byte_slice_to_url_safe(bytes: &[u8]) -> Result<String> {
+    let bytes = ZSTD_CDICT
+        .with(|d| zstd::bulk::Compressor::with_prepared_dictionary(d)?.compress(bytes))?;
+
+    Ok(base64::prelude::BASE64_URL_SAFE_NO_PAD.encode(bytes))
+}
+
+#[cfg_attr(feature = "wasm", wasm_bindgen(js_name = "urlSafeToBytes"))]
+pub fn url_safe_to_bytes(url_safe: String) -> Result<Vec<u8>> {
+    let mut bytes = url_safe.into_bytes();
+    let decoded = base64::prelude::BASE64_URL_SAFE_NO_PAD.decode(&mut bytes)?;
+
+    let mut decoder = ZSTD_DDICT.with(|d| zstd::bulk::Decompressor::with_prepared_dictionary(d))?;
+    let dest = decoder.decompress(&decoded, 2 << 20)?;
 
     Ok(dest)
 }
 
-#[wasm_bindgen(js_name = "spellToSnbt")]
-pub fn spell_to_snbt(spell: Spell) -> JsResult<String> {
-    let ser = quartz_nbt::serde::serialize(&spell, None, Flavor::Uncompressed).unwrap();
+#[cfg_attr(feature = "wasm", wasm_bindgen(js_name = "spellToSnbt"))]
+pub fn spell_to_snbt(spell: Spell) -> Result<String> {
+    let ser = quartz_nbt::serde::serialize(&spell, None, Flavor::Uncompressed)?;
     quartz_nbt::io::read_nbt(&mut Cursor::new(ser), Flavor::Uncompressed)
         .map(|o| o.0.to_snbt())
-        .map_err(JsError::from)
+        .map_err(Error::from)
 }
 
+#[cfg(feature = "wasm")]
 #[wasm_bindgen(start)]
 pub fn main() {
     std::panic::set_hook(Box::new(console_error_panic_hook::hook));

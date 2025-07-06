@@ -1,40 +1,7 @@
-[package]
-name = "psi-spell-encode-wasm"
-version = "2.0.6"
-edition = "2021"
-
-[lib]
-crate-type = ["cdylib"]
-
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
-
-[dependencies]
-base64-simd = "0.8.0"
-console_error_panic_hook = "0.1.7"
-wasm-bindgen = "0.2.87"
-
-[dependencies.serde]
-version = "1.0.188"
-features = ["derive"]
-
-[dependencies.quartz_nbt]
-git = "https://github.com/Rusty-Quartz/quartz_nbt"
-rev = "5e77de63de22e436e2c1e57d407d0dc222ffc85f"
-features = ["serde"]
-
-[dependencies.zstd]
-version = "0.12.4"
-features = ["wasm", "fat-lto", "thin"]
-default-features = false
-
-[dependencies.tsify]
-version = "0.4.5"
-default-features = false
-features = ["js"]
+[workspace]
+resolver = "3"
+members = ["lib", "psip"]
 
 [profile.release]
 lto = true
 opt-level = "z"
-
-[package.metadata.wasm-pack.profile.release]
-wasm-opt = ['-Oz']

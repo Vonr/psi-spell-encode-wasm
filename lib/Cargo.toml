@@ -1,0 +1,44 @@
+[package]
+name = "psi-spell-encode"
+version = "3.0.0"
+description = "Space-efficient encoding of spells for Psi, used in archiving efforts."
+repository = "https://github.com/Vonr/psi-spell-encode-wasm"
+license = "MIT"
+edition = "2024"
+
+[lib]
+crate-type = ["cdylib", "lib"]
+path = "src/lib.rs"
+
+[dependencies]
+anyhow = "1"
+base64 = "0.22"
+wasm-bindgen = "0.2"
+
+[dependencies.wee_alloc]
+version = "0.4.5"
+optional = true
+
+[dependencies.serde]
+version = "1"
+features = ["derive"]
+
+[dependencies.quartz_nbt]
+version = "0.2"
+features = ["serde"]
+
+[dependencies.zstd]
+version = "0.13"
+default-features = false
+
+[dependencies.tsify]
+version = "0.5"
+default-features = false
+optional = true
+
+[dependencies.console_error_panic_hook]
+version = "0.1"
+optional = true
+
+[features]
+wasm = ["dep:wee_alloc", "dep:console_error_panic_hook", "dep:tsify", "tsify/js", "zstd/wasm"]
