@@ -1,6 +1,6 @@
 [package]
 name = "psi-spell-encode"
-version = "3.0.0"
+version = "3.0.1"
 description = "Space-efficient encoding of spells for Psi, used in archiving efforts."
 repository = "https://github.com/Vonr/psi-spell-encode-wasm"
 license = "MIT"
