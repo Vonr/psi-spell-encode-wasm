@@ -1,7 +1,9 @@
 #!/bin/sh
 
 build() {
-    wasm-pack build --release -t "$1" --out-name psi-spell-encode-wasm --features wasm
+    wasm-pack build --release -t "$1" --out-name psi-spell-encode-wasm --features wasm || exit 1
+    jq '.name = "psi-spell-encode-wasm"' pkg/package.json >pkg/package.json.temp || exit 1
+    mv pkg/package.json.temp pkg/package.json || exit 1
 }
 
 case "$1" in
