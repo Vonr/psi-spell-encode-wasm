@@ -29,6 +29,7 @@ features = ["serde"]
 
 [dependencies.zstd]
 version = "0.13"
+features = ["thin", "experimental"]
 default-features = false
 
 [dependencies.tsify]
@@ -42,3 +43,6 @@ optional = true
 
 [features]
 wasm = ["dep:wee_alloc", "dep:console_error_panic_hook", "dep:tsify", "tsify/js", "zstd/wasm"]
+
+[package.metadata.wasm-pack.profile.release]
+wasm-opt = ['-Oz']

@@ -6,6 +6,7 @@ use zstd::dict::{DecoderDictionary, EncoderDictionary};
 use std::{
     cell::LazyCell,
     collections::HashMap,
+    fmt::Display,
     io::{BufRead, Cursor, Read},
 };
 
@@ -119,9 +120,157 @@ pub struct SpellData {
     pub comment: Option<String>,
 }
 
+#[repr(u8)]
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum SpecialTag {
+    Connector = 0,
+    ConstantNumber = 1,
+    VectorConstruct = 2,
+    VectorSum = 3,
+    VectorSub = 4,
+    VectorMul = 5,
+    VectorDiv = 6,
+    Sum = 7,
+    Sub = 8,
+    Mul = 9,
+    Div = 10,
+    Mod = 11,
+    VectorExtractX = 12,
+    VectorExtractY = 13,
+    VectorExtractZ = 14,
+    EntityPosition = 15,
+    EntityLook = 16,
+    Die = 17,
+    ErrSuppressor = 18,
+    Caster = 19,
+    None = 255,
+}
+
+impl From<&[u8]> for SpecialTag {
+    fn from(value: &[u8]) -> Self {
+        match value {
+            b"connector" => SpecialTag::Connector,
+            b"constant_number" => SpecialTag::ConstantNumber,
+            b"operator_vector_construct" => SpecialTag::VectorConstruct,
+            b"operator_vector_sum" => SpecialTag::VectorSum,
+            b"operator_vector_subtract" => SpecialTag::VectorSub,
+            b"operator_vector_multiply" => SpecialTag::VectorMul,
+            b"operator_divide" => SpecialTag::VectorDiv,
+            b"operator_sum" => SpecialTag::Sum,
+            b"operator_subtract" => SpecialTag::Sub,
+            b"operator_multiply" => SpecialTag::Mul,
+            b"operator_vector_divide" => SpecialTag::Div,
+            b"operator_modulus" => SpecialTag::Mod,
+            b"operator_vector_extract_x" => SpecialTag::VectorExtractX,
+            b"operator_vector_extract_y" => SpecialTag::VectorExtractY,
+            b"operator_vector_extract_z" => SpecialTag::VectorExtractZ,
+            b"operator_entity_position" => SpecialTag::EntityPosition,
+            b"operator_entity_look" => SpecialTag::EntityLook,
+            b"trick_die" => SpecialTag::Die,
+            b"error_suppressor" => SpecialTag::ErrSuppressor,
+            b"selector_caster" => SpecialTag::Caster,
+            _ => SpecialTag::None,
+        }
+    }
+}
+
+impl SpecialTag {
+    pub fn to_key<'a>(self) -> Option<&'a str> {
+        Some(match self {
+            SpecialTag::Connector => "psi:connector",
+            SpecialTag::ConstantNumber => "psi:constant_number",
+            SpecialTag::VectorConstruct => "psi:operator_vector_construct",
+            SpecialTag::VectorSum => "psi:operator_vector_sum",
+            SpecialTag::VectorSub => "psi:operator_vector_subtract",
+            SpecialTag::VectorMul => "psi:operator_vector_multiply",
+            SpecialTag::VectorDiv => "psi:operator_vector_divide",
+            SpecialTag::Sum => "psi:operator_sum",
+            SpecialTag::Sub => "psi:operator_subtract",
+            SpecialTag::Mul => "psi:operator_multiply",
+            SpecialTag::Div => "psi:operator_divide",
+            SpecialTag::Mod => "psi:operator_modulus",
+            SpecialTag::VectorExtractX => "psi:operator_vector_extract_x",
+            SpecialTag::VectorExtractY => "psi:operator_vector_extract_y",
+            SpecialTag::VectorExtractZ => "psi:operator_vector_extract_z",
+            SpecialTag::EntityPosition => "psi:operator_entity_position",
+            SpecialTag::EntityLook => "psi:operator_entity_look",
+            SpecialTag::Die => "psi:trick_die",
+            SpecialTag::ErrSuppressor => "psi:error_suppressor",
+            SpecialTag::Caster => "psi:selector_caster",
+            SpecialTag::None => return None,
+        })
+    }
+}
+
+#[derive(Debug)]
+struct InvalidDiscriminantError;
+
+impl Display for InvalidDiscriminantError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("invalid discriminant for enum")
+    }
+}
+
+impl std::error::Error for InvalidDiscriminantError {}
+
+#[derive(Debug)]
+struct MissingParamError {
+    x: u8,
+    y: u8,
+    piece: String,
+    param: String,
+}
+
+impl Display for MissingParamError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "missing parameter {} for piece {} at [{}, {}]",
+            self.param, self.piece, self.x, self.y,
+        )
+    }
+}
+
+impl std::error::Error for MissingParamError {}
+
+impl TryFrom<u8> for SpecialTag {
+    type Error = InvalidDiscriminantError;
+
+    fn try_from(value: u8) -> std::result::Result<Self, Self::Error> {
+        Ok(match value {
+            0 => SpecialTag::Connector,
+            1 => SpecialTag::ConstantNumber,
+            2 => SpecialTag::VectorConstruct,
+            255 => SpecialTag::None,
+            _ => return Err(InvalidDiscriminantError),
+        })
+    }
+}
+
+trait GetParam {
+    fn get_param(&self, piece: &Piece, key: &str) -> Result<u8>;
+}
+
+impl GetParam for Option<SpellParams> {
+    fn get_param(&self, piece: &Piece, key: &str) -> Result<u8> {
+        let err = || MissingParamError {
+            x: piece.x,
+            y: piece.y,
+            piece: piece.data.key.clone(),
+            param: "_target".to_owned(),
+        };
+
+        Ok(self
+            .as_ref()
+            .ok_or_else(err)?
+            .get(key)
+            .copied()
+            .ok_or_else(err)?)
+    }
+}
+
 impl Spell {
-    #[inline]
-    pub fn extend_bin(&self, out: &mut Vec<u8>) {
+    pub fn extend_bin(&self, out: &mut Vec<u8>) -> Result<()> {
         let name = self.name.as_bytes();
         out.extend_from_slice(name);
         out.push(0);
@@ -153,12 +302,71 @@ impl Spell {
             let constant = &data.constant;
             let comment = &data.comment;
             out.push(piece.x << 4 | (piece.y & 0b1111));
-            out.extend_from_slice(key);
-            out.push(0);
+
+            let special_tag = match key {
+                b"connector" => SpecialTag::Connector,
+                b"constant_number" => SpecialTag::ConstantNumber,
+                b"operator_vector_construct" => SpecialTag::VectorConstruct,
+                _ => SpecialTag::None,
+            };
+
+            out.push(special_tag as u8);
+            match special_tag {
+                SpecialTag::Connector
+                | SpecialTag::VectorExtractX
+                | SpecialTag::VectorExtractY
+                | SpecialTag::VectorExtractZ
+                | SpecialTag::EntityPosition
+                | SpecialTag::EntityLook
+                | SpecialTag::Die => {
+                    out.push(params.get_param(piece, "_target")?);
+                }
+                SpecialTag::ConstantNumber => {
+                    if let Some(constant) = constant {
+                        out.extend_from_slice(constant.as_bytes());
+                    }
+                    out.push(0);
+                }
+                SpecialTag::VectorConstruct => {
+                    out.push(params.get_param(piece, "_x")?);
+                    out.push(params.get_param(piece, "_y")?);
+                    out.push(params.get_param(piece, "_z")?);
+                }
+                SpecialTag::None => {
+                    out.extend_from_slice(key);
+                    out.push(0);
+                }
+                SpecialTag::VectorSum
+                | SpecialTag::VectorSub
+                | SpecialTag::VectorMul
+                | SpecialTag::VectorDiv => {
+                    out.push(params.get_param(piece, "_vector1")?);
+                    out.push(params.get_param(piece, "_vector2")?);
+                    out.push(params.get_param(piece, "_vector3")?);
+                }
+                SpecialTag::Sum | SpecialTag::Sub | SpecialTag::Mul | SpecialTag::Div => {
+                    out.push(params.get_param(piece, "_number1")?);
+                    out.push(params.get_param(piece, "_number2")?);
+                    out.push(params.get_param(piece, "_number3")?);
+                }
+                SpecialTag::Mod => {
+                    out.push(params.get_param(piece, "_number1")?);
+                    out.push(params.get_param(piece, "_number2")?);
+                }
+                SpecialTag::ErrSuppressor | SpecialTag::Caster => {}
+            }
+
             if let Some(comment) = comment {
                 out.extend_from_slice(comment.as_bytes());
             }
             out.push(0);
+
+            if matches!(
+                special_tag,
+                SpecialTag::Connector | SpecialTag::ConstantNumber | SpecialTag::VectorConstruct
+            ) {
+                continue;
+            }
 
             if let Some(params) = params {
                 out.push(params.len() as u8);
@@ -180,18 +388,17 @@ impl Spell {
                 out.push(254);
             }
         }
+
+        Ok(())
     }
 
-    #[inline]
-    pub fn bin(&self) -> Vec<u8> {
+    pub fn bin(&self) -> Result<Vec<u8>> {
         let mut out: Vec<u8> = Vec::new();
-        self.extend_bin(&mut out);
-        out
+        self.extend_bin(&mut out)?;
+        Ok(out)
     }
 
-    #[inline]
     pub fn decode(data: &[u8]) -> Result<Self> {
-        #[inline]
         fn read_until<T>(cursor: &mut Cursor<T>, byte: u8) -> Result<Vec<u8>>
         where
             T: std::convert::AsRef<[u8]>,
@@ -202,7 +409,6 @@ impl Spell {
             Ok(out)
         }
 
-        #[inline]
         fn read_until_nul<T>(cursor: &mut Cursor<T>) -> Result<Vec<u8>>
         where
             T: std::convert::AsRef<[u8]>,
@@ -210,7 +416,6 @@ impl Spell {
             read_until(cursor, 0)
         }
 
-        #[inline]
         fn next<T>(cursor: &mut Cursor<T>) -> Result<u8>
         where
             T: std::convert::AsRef<[u8]>,
@@ -220,7 +425,6 @@ impl Spell {
             Ok(a[0])
         }
 
-        #[inline]
         fn btos(b: Vec<u8>) -> Result<String> {
             Ok(String::from_utf8(b)?)
         }
@@ -259,19 +463,67 @@ impl Spell {
             let xy = next(&mut cursor)?;
             let x = xy >> 4;
             let y = xy & 0b1111;
-            let mut key = read_until_nul(&mut cursor)?;
-            if !key.contains(&b':') {
-                key.reserve(4);
-                unsafe {
-                    std::ptr::copy(key.as_ptr(), key.as_mut_ptr().add(4), key.len());
-                    key.set_len(key.len() + 4);
+            let special_tag: SpecialTag = next(&mut cursor)?.try_into()?;
+            let key = match special_tag.to_key() {
+                Some(key) => key.to_owned(),
+                None => {
+                    let mut key = read_until_nul(&mut cursor)?;
+                    if !key.contains(&b':') {
+                        key.reserve(4);
+                        unsafe {
+                            std::ptr::copy(key.as_ptr(), key.as_mut_ptr().add(4), key.len());
+                            key.set_len(key.len() + 4);
+                        }
+                        key[0] = b'p';
+                        key[1] = b's';
+                        key[2] = b'i';
+                        key[3] = b':';
+                    }
+                    btos(key)?
                 }
-                key[0] = b'p';
-                key[1] = b's';
-                key[2] = b'i';
-                key[3] = b':';
+            };
+
+            let mut params = HashMap::new();
+            let mut constant = None;
+
+            match special_tag {
+                SpecialTag::Connector
+                | SpecialTag::VectorExtractX
+                | SpecialTag::VectorExtractY
+                | SpecialTag::VectorExtractZ
+                | SpecialTag::EntityPosition
+                | SpecialTag::EntityLook
+                | SpecialTag::Die => {
+                    params.insert("_target".to_owned(), next(&mut cursor)?);
+                }
+                SpecialTag::ConstantNumber => {
+                    constant = Some(btos(read_until_nul(&mut cursor)?)?);
+                }
+                SpecialTag::VectorConstruct => {
+                    params.insert("_x".to_owned(), next(&mut cursor)?);
+                    params.insert("_y".to_owned(), next(&mut cursor)?);
+                    params.insert("_z".to_owned(), next(&mut cursor)?);
+                }
+                SpecialTag::VectorSum
+                | SpecialTag::VectorSub
+                | SpecialTag::VectorMul
+                | SpecialTag::VectorDiv => {
+                    params.insert("_vector1".to_owned(), next(&mut cursor)?);
+                    params.insert("_vector2".to_owned(), next(&mut cursor)?);
+                    params.insert("_vector3".to_owned(), next(&mut cursor)?);
+                }
+                SpecialTag::Sum | SpecialTag::Sub | SpecialTag::Mul | SpecialTag::Div => {
+                    params.insert("_number1".to_owned(), next(&mut cursor)?);
+                    params.insert("_number2".to_owned(), next(&mut cursor)?);
+                    params.insert("_number3".to_owned(), next(&mut cursor)?);
+                }
+                SpecialTag::Mod => {
+                    params.insert("_number1".to_owned(), next(&mut cursor)?);
+                    params.insert("_number2".to_owned(), next(&mut cursor)?);
+                }
+                SpecialTag::ErrSuppressor | SpecialTag::Caster => {}
+                SpecialTag::None => {}
             }
-            let key = btos(key)?;
 
             let comment = btos(read_until_nul(&mut cursor)?)?;
             let comment = if comment.is_empty() {
@@ -280,8 +532,23 @@ impl Spell {
                 Some(comment)
             };
 
-            let mut params = HashMap::new();
-            let mut constant = None;
+            if special_tag != SpecialTag::None {
+                pieces.push(Piece {
+                    data: SpellData {
+                        key,
+                        params: if params.is_empty() {
+                            None
+                        } else {
+                            Some(params)
+                        },
+                        constant,
+                        comment,
+                    },
+                    x,
+                    y,
+                });
+                continue;
+            }
 
             let ty = next(&mut cursor)?;
             if ty == 255 {
@@ -293,7 +560,7 @@ impl Spell {
                     let param_key = if type_or_pos == 255 {
                         btos(read_until_nul(&mut cursor)?)?
                     } else {
-                        BUILTIN_PARAMS[type_or_pos as usize].to_string()
+                        BUILTIN_PARAMS[type_or_pos as usize].to_owned()
                     };
 
                     let side = next(&mut cursor)?;
@@ -322,9 +589,10 @@ impl Spell {
     }
 }
 
-impl From<&Spell> for Vec<u8> {
-    #[inline]
-    fn from(value: &Spell) -> Self {
+impl TryFrom<&Spell> for Vec<u8> {
+    type Error = Error;
+
+    fn try_from(value: &Spell) -> std::result::Result<Self, Self::Error> {
         value.bin()
     }
 }
@@ -353,7 +621,7 @@ pub fn byte_slice_to_spell(bytes: &[u8]) -> Result<Spell> {
 
 #[cfg_attr(feature = "wasm", wasm_bindgen(js_name = "spellToBytes"))]
 pub fn spell_to_bytes(spell: Spell) -> Result<Vec<u8>> {
-    Ok((&spell).into())
+    (&spell).try_into()
 }
 
 #[cfg_attr(feature = "wasm", wasm_bindgen(js_name = "urlSafeToSpell"))]
@@ -369,8 +637,8 @@ pub fn spell_to_url_safe(spell: Spell) -> Result<String> {
 const ZSTD_DICT_RAW: &[u8] = include_bytes!("./zstd_dict");
 
 thread_local! {
-    static ZSTD_CDICT: LazyCell<&'static EncoderDictionary> = const { LazyCell::new(|| Box::leak(Box::new(EncoderDictionary::copy(ZSTD_DICT_RAW, 22)))) };
-    static ZSTD_DDICT: LazyCell<&'static DecoderDictionary> = const { LazyCell::new(|| Box::leak(Box::new(DecoderDictionary::copy(ZSTD_DICT_RAW)))) };
+    static ZSTD_CDICT: LazyCell<&'static EncoderDictionary> = const { LazyCell::new(|| Box::leak(Box::new(EncoderDictionary::new(ZSTD_DICT_RAW, 22)))) };
+    static ZSTD_DDICT: LazyCell<&'static DecoderDictionary> = const { LazyCell::new(|| Box::leak(Box::new(DecoderDictionary::new(ZSTD_DICT_RAW)))) };
 }
 
 #[cfg_attr(feature = "wasm", wasm_bindgen(js_name = "bytesToUrlSafe"))]
